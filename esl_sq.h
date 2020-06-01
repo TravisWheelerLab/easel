@@ -193,7 +193,7 @@ extern void esl_sq_ReuseBlock(ESL_SQ_BLOCK *block);
 extern int esl_sq_BlockGrowTo(ESL_SQ_BLOCK *sqblock, int newsize, int do_digital, const ESL_ALPHABET *abc);
 extern ESL_SQ_BLOCK *esl_sq_CreateDigitalBlock(int count, const ESL_ALPHABET *abc);
 extern void          esl_sq_DestroyBlock(ESL_SQ_BLOCK *sqBlock);
-
+extern int esl_sq_BlockReallocSequences(ESL_SQ_BLOCK *block);
 extern int esl_sq_Sample(ESL_RANDOMNESS *rng, ESL_ALPHABET *abc, int maxL, ESL_SQ **ret_sq);
 
 #endif /*eslSQ_INCLUDED*/
