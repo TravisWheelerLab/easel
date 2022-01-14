@@ -1584,11 +1584,14 @@ esl_sq_XAddResidue(ESL_SQ *sq, ESL_DSQ x)
  *            data). Degenerate nucleic acid IUPAC characters are
  *            complemented appropriately.
  *
- *            The <start/end> coords in <sq> are swapped. (Note that
- *            in the unusual case of sequences of length 1,
- *            <start=end> and we can't unambiguously tell if a seq is
- *            in the reverse complement direction or not; this is a
- *            minor flaw in Easel's current coordinate handling.)
+ *            The <start/end> coords in <sq> are swapped in the
+ *            source-tracking coordinate info. If <sq> is length 1,
+ *            we're unable to unambiguously differentiate forward
+ *            vs. reverse strand in Easel's
+ *            1-offset/closed-interval/no-flag coord system (see
+ *            comments in esl_sq.h), so caller needs to hack some way
+ *            of remembering for itself that the sequence is reverse
+ *            complemented.
  *
  * Returns:   <eslOK> on success.
  *            
@@ -1665,6 +1668,7 @@ esl_sq_ReverseComplement(ESL_SQ *sq)
     }
 
   ESL_SWAP(sq->start, sq->end, int64_t);
+
   /* revcomp invalidates any secondary structure annotation */
   if (sq->ss != NULL) { free(sq->ss); sq->ss = NULL; }
   /* revcomp invalidates any extra residue markup */
@@ -1674,7 +1678,6 @@ esl_sq_ReverseComplement(ESL_SQ *sq)
     free(sq->xr_tag); sq->xr_tag = NULL;
     free(sq->xr);     sq->xr     = NULL;
   }   
-  
   return status;
 
  ERROR:
@@ -2263,8 +2266,15 @@ sq_init(ESL_SQ *sq, int do_digital)
   ESL_ALLOC(sq->acc,    sizeof(char) * sq->aalloc);
   ESL_ALLOC(sq->desc,   sizeof(char) * sq->dalloc);
   ESL_ALLOC(sq->source, sizeof(char) * sq->srcalloc);
-  if (do_digital) ESL_ALLOC(sq->dsq,  sizeof(ESL_DSQ) * sq->salloc);
-  else            ESL_ALLOC(sq->seq,  sizeof(char)    * sq->salloc);
+  if (do_digital)
+    {
+      ESL_ALLOC(sq->dsq,  sizeof(ESL_DSQ) * sq->salloc);
+    }
+  else 
+    {
+      ESL_ALLOC(sq->seq,  sizeof(char)    * sq->salloc);
+      sq->abc = NULL;
+    }
 
   esl_sq_Reuse(sq);	/* initialization of sq->n, offsets, and strings */
   return eslOK;
