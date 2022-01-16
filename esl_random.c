@@ -858,7 +858,7 @@ esl_rnd_FChoose(ESL_RANDOMNESS *r, const float *p, int N)
   ESL_DASSERT1((norm > 0.99 && norm < 1.01));
 
   for (i = 0; i < N; i++)
-    {
+    { 
       sum += (double) p[i];
       if (roll < (sum / norm) ) return i; 
     }

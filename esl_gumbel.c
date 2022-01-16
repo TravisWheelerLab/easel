@@ -130,7 +130,6 @@ esl_gumbel_surv(double x, double mu, double lambda)
 {
   double y  = lambda*(x-mu);
   double ey = -exp(-y);
-
   /* Use 1-e^x ~ -x approximation here when e^-y is small. */
   if (fabs(ey) < eslSMALLX1) return -ey;
   else                       return 1 - exp(ey);

@@ -128,6 +128,7 @@ esl_hmm_Configure(ESL_HMM *hmm, float *fq)
     use_fq = (fq == NULL) ? uniform : fq[x];
     for (k = 0; k < hmm->M; k++)
       hmm->eo[x][k] = hmm->e[k][x] / use_fq;
+      
   }
 
   for (k = 0; k < hmm->M; k++)
@@ -318,6 +319,9 @@ esl_hmm_Emit(ESL_RANDOMNESS *r, const ESL_HMM *hmm, ESL_DSQ **opt_dsq, int **opt
   dsq[0]  = eslDSQ_SENTINEL;
   path[0] = -1;
   
+ printf("M %d\n", hmm->M);
+  for(int i = 0; i <  hmm->M+1; i++)
+	printf("i %d hmm->pi[i] %f\n", i, hmm->pi[i]);
   k = esl_rnd_FChoose(r, hmm->pi, hmm->M+1);
   L = 0;
   while (k != hmm->M)		/* M is the implicit end state */
@@ -348,7 +352,6 @@ esl_hmm_Emit(ESL_RANDOMNESS *r, const ESL_HMM *hmm, ESL_DSQ **opt_dsq, int **opt
   return status;
 }
 
-
 int
 esl_hmm_Forward(const ESL_DSQ *dsq, int L, const ESL_HMM *hmm, ESL_HMX *fwd, float *opt_sc)
 {
@@ -370,40 +373,38 @@ esl_hmm_Forward(const ESL_DSQ *dsq, int L, const ESL_HMM *hmm, ESL_HMX *fwd, flo
     fwd->dp[1][k] = hmm->eo[dsq[1]][k] * hmm->pi[k];
     max = ESL_MAX(fwd->dp[1][k], max);
   }
-  for (k = 0; k < M; k++) {
+   
+  for (k = 0; k < M; k++) 
     fwd->dp[1][k] /= max;
-  }
-  fwd->sc[1] = log(max);
 
+  fwd->sc[1] = log(max);
   for (i = 2; i <= L; i++)
     {
       max = 0.0;
       for (k = 0; k < M; k++)
 	{
 	  fwd->dp[i][k] = 0.0;
-	  for (m = 0; m < M; m++)
-	    fwd->dp[i][k] += fwd->dp[i-1][m] * hmm->t[m][k];
-
-	  fwd->dp[i][k] *= hmm->eo[dsq[i]][k];
 	  
+          for (m = 0; m < M; m++) 
+	    fwd->dp[i][k] += fwd->dp[i-1][m] * hmm->t[m][k];
+	  fwd->dp[i][k] *= hmm->eo[dsq[i]][k];
 	  max = ESL_MAX(fwd->dp[i][k], max);
 	}
       
+
       for (k = 0; k < M; k++)
 	fwd->dp[i][k] /= max;
       fwd->sc[i] = log(max);
     }
-	  
+
   
   fwd->sc[L+1] = 0.0;
-  for (m = 0; m < M; m++) 
+  for (m = 0; m < M; m++)
     fwd->sc[L+1] += fwd->dp[L][m] * hmm->t[m][M];
   fwd->sc[L+1] = log(fwd->sc[L+1]);
-
   logsc = 0.0;
-  for (i = 1; i <= L+1; i++)
+  for (i = 1; i <= L+1; i++) 
     logsc += fwd->sc[i];
-
   fwd->M = hmm->M;
   fwd->L = L;
   if (opt_sc != NULL) *opt_sc = logsc;

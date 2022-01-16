@@ -796,7 +796,7 @@ int
 esl_opt_IsDefault(const ESL_GETOPTS *g, char *optname)
 {
   int opti;
-
+	
   if (get_optidx_exactly(g, optname, &opti) != eslOK)  esl_fatal("no such option %s\n", optname);
   if (g->setby[opti] == eslARG_SETBY_DEFAULT)          return TRUE;
 
@@ -1184,7 +1184,7 @@ set_option(ESL_GETOPTS *g, int opti, char *optarg, int setby, int do_alloc)
   else if  (setby == eslARG_SETBY_CMDLINE) where = "on cmdline";
   else if  (setby == eslARG_SETBY_ENV)     where = "in env";
   else if  (setby >= eslARG_SETBY_CFGFILE) where = "in cfgfile";
-
+	
   /* Have we already set this option? */
   if (g->setby[opti] == setby)
     ESL_FAIL(eslESYNTAX, g->errbuf,
@@ -1271,7 +1271,7 @@ get_optidx_exactly(const ESL_GETOPTS *g, char *optname, int *ret_opti)
 {
   int i;
 
-  for (i = 0; i < g->nopts; i++)
+  for (i = 0; i < g->nopts; i++) 
     if (strcmp(optname, g->opt[i].name) == 0) { *ret_opti = i; return eslOK; }
   *ret_opti = -1;
   return eslENOTFOUND;
@@ -1367,6 +1367,7 @@ esl_getopts(ESL_GETOPTS *g, int *ret_opti, char **ret_optarg)
    * Watch out for the case where we're in the middle of a concatenated optstring
    * of single-letter options, a la -abc
    */
+
   if (g->optstring == NULL && strncmp(g->argv[g->optind], "--", 2) == 0)
     return process_longopt(g, ret_opti, ret_optarg);
   else 
@@ -1711,7 +1712,7 @@ verify_real_range(char *arg, char *range)
   double upper, lower;		/* upper, lower bounds */
   char  *up, *lp;		
   int    geq, leq;	        /* use >=, <= instead of >, < */
-  
+ 
   if (range == NULL) return eslOK;
   x = atof(arg);
   

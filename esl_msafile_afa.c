@@ -233,7 +233,7 @@ esl_msafile_afa_Read(ESL_MSAFILE *afp, ESL_MSA **ret_msa)
       else if (status != eslOK)  goto ERROR;
     }
     if (this_alen == 0)            ESL_XFAIL(eslEFORMAT, afp->errmsg, "sequence %s has alen %" PRId64 , msa->sqname[idx], this_alen);
-    if (alen && alen != this_alen) ESL_XFAIL(eslEFORMAT, afp->errmsg, "sequence %s has alen %" PRId64 "; expected %" PRId64, msa->sqname[idx], this_alen, alen);
+    if (alen && (alen != this_alen)) ESL_XFAIL(eslEFORMAT, afp->errmsg, "sequence %s has alen %" PRId64 "; expected %" PRId64, msa->sqname[idx], this_alen, alen);
 
     alen = this_alen;
     idx++;
