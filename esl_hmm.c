@@ -319,9 +319,6 @@ esl_hmm_Emit(ESL_RANDOMNESS *r, const ESL_HMM *hmm, ESL_DSQ **opt_dsq, int **opt
   dsq[0]  = eslDSQ_SENTINEL;
   path[0] = -1;
   
- printf("M %d\n", hmm->M);
-  for(int i = 0; i <  hmm->M+1; i++)
-	printf("i %d hmm->pi[i] %f\n", i, hmm->pi[i]);
   k = esl_rnd_FChoose(r, hmm->pi, hmm->M+1);
   L = 0;
   while (k != hmm->M)		/* M is the implicit end state */
