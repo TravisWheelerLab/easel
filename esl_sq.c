@@ -645,7 +645,8 @@ esl_sq_DestroyBlock(ESL_SQ_BLOCK *block)
 int esl_sq_BlockReallocSequences(ESL_SQ_BLOCK *block){  
   int status;
   int i;
-  for(i = 0; i < block->listSize; i++){
+  for (i = 0; i < block->listSize; i++)
+  {
     (block->list+i)->nalloc   = eslSQ_NAMECHUNK; 
     (block->list+i)->aalloc   = eslSQ_ACCCHUNK;
     (block->list+i)->dalloc   = eslSQ_DESCCHUNK;
@@ -660,7 +661,7 @@ int esl_sq_BlockReallocSequences(ESL_SQ_BLOCK *block){
     if ((block->list+i)->ss != NULL){
       ESL_REALLOC((block->list+i)->ss,  sizeof(char)    * (block->list+i)->salloc);
     }
-  } 
+  }
   return(eslOK);  
 ERROR:  
   return(status);
