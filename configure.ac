@@ -69,7 +69,7 @@ m4_include([m4/esl_pic_flags.m4])
 ################################################################
 # 2. AC_INIT
 ################################################################
-AC_INIT(Easel, 0.48, sean@eddylab.org, easel)
+AC_INIT(Easel, 0.49, sean@eddylab.org, easel)
 AC_MSG_NOTICE([Configuring the Easel library for your system.])
 
 # remember if the user is overriding CFLAGS
@@ -106,8 +106,8 @@ fi
 #     EASEL_VERSION    e.g. "1.9a"
 #
 
-EASEL_DATE="Nov 2020"
-EASEL_COPYRIGHT="Copyright (C) 2020 Howard Hughes Medical Institute"
+EASEL_DATE="Aug 2023"
+EASEL_COPYRIGHT="Copyright (C) 2023 Howard Hughes Medical Institute"
 EASEL_LICENSE="Freely distributed under the BSD open source license."
 EASEL_VERSION=$PACKAGE_VERSION
 EASEL_URL="http://bioeasel.org/"
@@ -233,6 +233,7 @@ fi
 if test "$enable_asan" = "yes"; then
   CFLAGS="$CFLAGS -fsanitize=address"
   LDFLAGS="$LDFLAGS -fsanitize=address"
+  AC_DEFINE(eslENABLE_ASAN, 1, [Using address sanitizer])
 fi
 if test "$enable_tsan" = "yes"; then
   if test "$enable_asan" = "yes"; then  
@@ -240,6 +241,7 @@ if test "$enable_tsan" = "yes"; then
   fi
   CFLAGS="$CFLAGS -fsanitize=thread"
   LDFLAGS="$LDFLAGS -fsanitize=thread"
+  AC_DEFINE(eslENABLE_TSAN, 1, [Using threads sanitizer])
 fi
 
 

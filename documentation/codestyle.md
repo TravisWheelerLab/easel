@@ -141,7 +141,7 @@ For example, this is the top of start of `esl_json`:
      *   www.json.org
      *   tools.ietf.org/html/rfc8259 
      */
-     #include "esl_config.h"
+     #include <esl_config.h>
 
 The short table of contents description lines are repeated in comments
 at the top of each section later in the file, facilitating
@@ -163,17 +163,23 @@ of external functions from the .c file.
 The first include is a project-wide configuration header named
 `<project_prefix>_config.h`.  It must be included first, because it
 may contain configuration constants that affect the behavior of other
-headers, even including system headers.  System headers come next,
-because they might contain configuration that affects our
-headers. Finally come our headers. I tend to group our headers
-together by project, and alphabetize them, but (aside from the
-project-wide config.h) our headers don't depend on any particular
+headers, even including system headers. It must be included with angle
+brackets, not double quotes, so compilation commands can control the
+order that -I include directories are searched (build tree first,
+source tree last), to assure that we don't erroneously use a stray
+previous config file in the source tree when we're building in a build
+tree.
+
+System headers come next, because they might contain configuration
+that affects our headers. Finally come our headers. I tend to group
+our headers together by project, and alphabetize them, but (aside from
+the project-wide config.h) our headers don't depend on any particular
 inclusion order.
 
 For example:
 
 
-    #include "h4_config.h"
+    #include <h4_config.h>
 
     #include <stdio.h>
     #include <stdlib.h>
@@ -199,7 +205,7 @@ included once during compilation, regardless of the order of
 ```
 #ifndef eslJSON_INCLUDED
 #define eslJSON_INCLUDED
-#include "esl_config.h"
+#include <esl_config.h>
 
  /* ...contents here... */
 
@@ -379,9 +385,9 @@ global or static variables.
 
 ##  managing memory allocation
 
-We allocate memory using `ESL_ALLOC()`, a macro wrapper around
-`malloc()`. Pointers are always initialized to `NULL` when they are
-declared. 
+We allocate memory using `ESL_ALLOC(ptr, size)`, a macro wrapper
+around `malloc()`. Pointers are always initialized to `NULL` when they
+are declared, before the `ESL_ALLOC()`.
 
 The `ESL_ALLOC()` macro depends on having an `int status` variable and
 an `ERROR:` goto target in scope. If an allocation fails,
@@ -420,6 +426,17 @@ We want to avoid having `NULL` as a successful result of an
 allocation, because it confuses static analysis tools when they see
 dereferences of possibly `NULL` pointers.
 
+The `size` argument is >= 0. It can be either signed or unsigned, but
+beware of mixed constructs like `(sizeof(foo) * n)`. `sizeof()`
+returns unsigned; (unsigned * signed) first converts the signed
+operand to unsigned; if the signed operand is negative, the conversion
+adds `UINT_MAX+1` modulo `UINT_MAX+1`, and a small negative signed
+number becomes a ridiculously large unsigned one. Even when you know n
+is positive, a `-Walloc-size-larger-than` warning in some gcc versions
+is very aggressively looking for problems of this sort, where it may
+assume that your n could have any value from INT_MIN to -1, generating
+a false positive compiler warning. To suppress this warning we
+typically use a signed cast, `(ptrdiff_t) sizeof(foo) * n`.
 		
 
 
