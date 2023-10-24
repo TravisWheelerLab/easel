@@ -85,12 +85,12 @@ EOF
 close TESTFILE;
 
 $output = `$builddir/miniapps/esl-translate -l 25 --watson $tmppfx.fa`;
-if ($output !~ / coords=4\.\.81\s+length=26\s+frame=1/)       { die "FAIL: ambiguity codes mishandled by translation - unexpected desc line"; }
-if ($output !~ /\s+XFLSYCLPHQRITNKSRVADEGXXXX\s+/)        { die "FAIL: ambiguity codes mishandled by translation"; }
+if ($output !~ / coords=5\.\.82\s+length=26\s+frame=2/)       { die "FAIL: ambiguity codes mishandled by translation - unexpected desc line"; }
+if ($output !~ /\s+CXXXXXXXXXXXXXXXXXXXXXXXXV\s+/)        { die "FAIL: ambiguity codes mishandled by translation"; }
 
 $output = `$builddir/miniapps/esl-translate -M -l 25 --watson $tmppfx.fa`;
-if ($output !~ / coords=4\.\.81\s+length=26\s+frame=1/)       { die "FAIL: ambiguity codes mishandled by translation - unexpected desc line"; }
-if ($output !~ /\s+MFLSYCLPHQRITNKSRVADEGXXXX\s+/)        { die "FAIL: ambiguity codes mishandled by translation"; }
+if ($output !~ / coords=4\.\.84\s+length=27\s+frame=1/)       { die "FAIL: ambiguity codes mishandled by translation - unexpected desc line"; }
+if ($output !~ /\s+MXXXXXXXXXXXXXXXXXXXXXXXXXX\s+/)        { die "FAIL: ambiguity codes mishandled by translation"; }
 
 
 # Generate a couple of large-ish random sequences, larger than the window size.

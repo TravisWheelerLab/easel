@@ -633,7 +633,11 @@ esl_gencode_GetTranslation(const ESL_GENCODE *gcode, ESL_DSQ *dsqp)
       codon = 16*dsqp[0] + 4*dsqp[1] + dsqp[2];
       return gcode->basic[codon];
     }
+/* HMMER method of dealing with degneracies does not work for frameshift aware transation.
+ * Changes here bring standard transation closer of frameshift aware transation. */
+   else return gcode->aa_abc->Kp-3;
 
+/*
   for (x = 0; x < 4; x++)
     {
       if (! gcode->nt_abc->degen[dsqp[0]][x]) continue;
@@ -643,14 +647,14 @@ esl_gencode_GetTranslation(const ESL_GENCODE *gcode, ESL_DSQ *dsqp)
 	  for (z = 0; z < 4; z++)
 	    {
 	      if (! gcode->nt_abc->degen[dsqp[2]][z]) continue;
-	      /* xyz is one possible basic codon included in the dsqp[3] degeneracy */
+	      // xyz is one possible basic codon included in the dsqp[3] degeneracy 
 	      codon = x * 16 + y * 4 + z;
 	      if      (aa == -1) aa = gcode->basic[codon];
 	      else if (aa != gcode->basic[codon]) return esl_abc_XGetUnknown(gcode->aa_abc);
 	    }
 	}
     }
-  return aa;
+*/
 }
 
 /* Function:  esl_gencode_IsInitiator()
@@ -840,7 +844,7 @@ void
 esl_gencode_ProcessStart(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ *sq)
 {
   int f;
-
+ 
   ESL_DASSERT1(( sq->n >= 3 ));
 
   for (f = 0; f < 3; f++)
@@ -864,10 +868,11 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
 {
   ESL_DSQ aa;
   int     rpos;
-
+ 
   for (rpos = 1; rpos <= sq->n-2; rpos++)
     {
       wrk->codon = (wrk->codon * 4) % 64;
+
       if   ( esl_abc_XIsCanonical(gcode->nt_abc, sq->dsq[rpos+2])) wrk->codon += sq->dsq[rpos+2];
       else wrk->inval = 3;
 
@@ -877,6 +882,7 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       if (wrk->inval > 0) // degenerate codon: needs special, tedious handling
       {
         aa =  esl_gencode_GetTranslation(gcode, sq->dsq+rpos);                         // This function can deal with any degeneracy
+
         if (! wrk->in_orf[wrk->frame] && esl_gencode_IsInitiator(gcode, sq->dsq+rpos)) //   ...as can IsInitiator.
           {
             if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
@@ -889,6 +895,7 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       else
       {
         aa = gcode->basic[wrk->codon];                             // If we know the digitized codon has no degeneracy, translation is a simple lookup
+      
         if (gcode->is_initiator[wrk->codon] && ! wrk->in_orf[wrk->frame])
           {
             if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
@@ -925,7 +932,7 @@ int
 esl_gencode_ProcessEnd(ESL_GENCODE_WORKSTATE *wrk, ESL_SQ *sq)
 {
   int f;
-
+ 
   /* Done with the sequence. Now terminate all the orfs we were working on.
    * <apos> is sitting at L-1 (or 2, if revcomp) and we're in some <frame>
    * there.
