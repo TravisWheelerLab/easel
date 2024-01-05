@@ -624,9 +624,7 @@ esl_gencode_Write(FILE *ofp, const ESL_GENCODE *gcode, int add_comment)
 int
 esl_gencode_GetTranslation(const ESL_GENCODE *gcode, ESL_DSQ *dsqp)
 {
-  ESL_DSQ x, y, z;
   int     codon;
-  int     aa = -1;
 
   if (esl_abc_XIsCanonical(gcode->nt_abc, dsqp[0]) && esl_abc_XIsCanonical(gcode->nt_abc, dsqp[1]) && esl_abc_XIsCanonical(gcode->nt_abc, dsqp[2]))
     {
@@ -637,24 +635,6 @@ esl_gencode_GetTranslation(const ESL_GENCODE *gcode, ESL_DSQ *dsqp)
  * Changes here bring standard transation closer of frameshift aware transation. */
    else return gcode->aa_abc->Kp-3;
 
-/*
-  for (x = 0; x < 4; x++)
-    {
-      if (! gcode->nt_abc->degen[dsqp[0]][x]) continue;
-      for (y = 0; y < 4; y++)
-	{
-	  if (! gcode->nt_abc->degen[dsqp[1]][y]) continue;
-	  for (z = 0; z < 4; z++)
-	    {
-	      if (! gcode->nt_abc->degen[dsqp[2]][z]) continue;
-	      // xyz is one possible basic codon included in the dsqp[3] degeneracy 
-	      codon = x * 16 + y * 4 + z;
-	      if      (aa == -1) aa = gcode->basic[codon];
-	      else if (aa != gcode->basic[codon]) return esl_abc_XGetUnknown(gcode->aa_abc);
-	    }
-	}
-    }
-*/
 }
 
 /* Function:  esl_gencode_IsInitiator()
