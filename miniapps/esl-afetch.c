@@ -258,7 +258,7 @@ multifetch(ESL_GETOPTS *go, FILE *ofp, int outfmt, char *keyfile, ESL_MSAFILE *a
       
       status = esl_keyhash_Store(keys, key, keylen, &keyidx);
       if (status == eslEDUP) esl_fatal("MSA key %s occurs more than once in file %s\n", key, keyfile);
-	
+      	
       if (afp->ssi) { onefetch(go, ofp, outfmt, key, afp);  nali++; }
 
     }
@@ -268,14 +268,16 @@ multifetch(ESL_GETOPTS *go, FILE *ofp, int outfmt, char *keyfile, ESL_MSAFILE *a
       while ((status = esl_msafile_Read(afp, &msa)) != eslEOF)
 	{
 	  if (status != eslOK) esl_msafile_ReadFailure(afp, status);
-	  nali++;
 
 	  if (msa->name == NULL) 
 	    esl_fatal("Every alignment in file must have a name to be retrievable. Failed to find name of alignment #%d\n", nali);
 
 	  if ( (esl_keyhash_Lookup(keys, msa->name, -1, NULL) == eslOK) ||
-	       (msa->acc != NULL && esl_keyhash_Lookup(keys, msa->acc, -1, NULL) == eslOK))
+	       (msa->acc != NULL && esl_keyhash_Lookup(keys, msa->acc, -1, NULL) == eslOK)) 
+	  {
 	    esl_msafile_Write(ofp, msa, outfmt);
+		nali++;
+      }
 
 	  esl_msa_Destroy(msa);
 	}
