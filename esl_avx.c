@@ -209,6 +209,7 @@ utest_hmax_epi16(ESL_RANDOMNESS *rng)
 #include "esl_getopts.h"
 #include "esl_random.h"
 #include "esl_avx.h"
+#include "esl_cpu.h"
 
 static ESL_OPTIONS options[] = {
   /* name           type      default  env  range toggles reqs incomp  help                                       docgroup*/
@@ -217,7 +218,7 @@ static ESL_OPTIONS options[] = {
   {  0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 static char usage[]  = "[-options]";
-static char banner[] = "test driver for avx512 module";
+static char banner[] = "test driver for avx module";
 
 int
 main(int argc, char **argv)
@@ -228,9 +229,16 @@ main(int argc, char **argv)
   fprintf(stderr, "## %s\n", argv[0]);
   fprintf(stderr, "#  rng seed = %" PRIu32 "\n", esl_randomness_GetSeed(rng));
 
-  utest_hmax_epu8(rng);
-  utest_hmax_epi8(rng);
-  utest_hmax_epi16(rng);
+  if (esl_cpu_has_avx())
+    {
+      utest_hmax_epu8(rng);
+      utest_hmax_epi8(rng);
+      utest_hmax_epi16(rng);
+    }
+  else
+    {
+      fprintf(stderr, "processor does not support our AVX/AVX2 code; skipping tests.\n");
+    }
 
   fprintf(stderr, "#  status = ok\n");
 
