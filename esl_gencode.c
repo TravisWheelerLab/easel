@@ -848,12 +848,19 @@ esl_gencode_ProcessStart(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
 int
 esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ *sq)
 {
-  ESL_DSQ aa;
-  int     rpos;
- 
+  ESL_DSQ  aa;
+  int      rpos;
+  ESL_SQ  *psq[3];
+  int      frame;
+
+  psq[0] = wrk->psq[0];
+  psq[1] = wrk->psq[1];
+  psq[2] = wrk->psq[2];
+  frame  = wrk->frame;
+
   for (rpos = 1; rpos <= sq->n-2; rpos++)
     {
-      wrk->codon = (wrk->codon * 4) % 64;
+      wrk->codon = (wrk->codon * 4) & 63;
 
       if   ( esl_abc_XIsCanonical(gcode->nt_abc, sq->dsq[rpos+2])) wrk->codon += sq->dsq[rpos+2];
       else wrk->inval = 3;
@@ -865,47 +872,48 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       {
         aa =  esl_gencode_GetTranslation(gcode, sq->dsq+rpos);                         // This function can deal with any degeneracy
 
-        if (! wrk->in_orf[wrk->frame] && esl_gencode_IsInitiator(gcode, sq->dsq+rpos)) //   ...as can IsInitiator.
+        if (! wrk->in_orf[frame] && esl_gencode_IsInitiator(gcode, sq->dsq+rpos)) //   ...as can IsInitiator.
           {
             if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
               aa = esl_abc_DigitizeSymbol(gcode->aa_abc, 'M');
-            wrk->in_orf[wrk->frame]     = TRUE;
-            wrk->psq[wrk->frame]->start = wrk->apos;
+            wrk->in_orf[frame]  = TRUE;
+            psq[frame]->start   = wrk->apos;
           }
         wrk->inval--;
       }
       else
       {
         aa = gcode->basic[wrk->codon];                             // If we know the digitized codon has no degeneracy, translation is a simple lookup
-      
-        if (gcode->is_initiator[wrk->codon] && ! wrk->in_orf[wrk->frame])
+
+        if (gcode->is_initiator[wrk->codon] && ! wrk->in_orf[frame])
           {
             if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
               aa = esl_abc_DigitizeSymbol(gcode->aa_abc, 'M');
-            wrk->psq[wrk->frame]->start = wrk->apos;
-            wrk->in_orf[wrk->frame]     = TRUE;
+            psq[frame]->start  = wrk->apos;
+            wrk->in_orf[frame] = TRUE;
           }
       }
 
       /* Stop codon: deal with this ORF sequence and reinitiate */
       if ( esl_abc_XIsNonresidue(gcode->aa_abc, aa))
-        esl_gencode_ProcessOrf(wrk, sq);
+        { wrk->frame = frame; esl_gencode_ProcessOrf(wrk, sq); frame = wrk->frame; }
 
       /* Otherwise: we have a residue. If we're in an orf (if we've
        * seen a suitable initiator), add this residue, reallocating as needed.
        */
-      if (wrk->in_orf[wrk->frame])
+      if (wrk->in_orf[frame])
       {
-        if (wrk->psq[wrk->frame]->n + 2 > wrk->psq[wrk->frame]->salloc)
-          esl_sq_Grow(wrk->psq[wrk->frame], /*opt_nsafe=*/NULL);
-        wrk->psq[wrk->frame]->dsq[1+ wrk->psq[wrk->frame]->n] = aa;
-        wrk->psq[wrk->frame]->n++;
+        if (psq[frame]->n + 2 > psq[frame]->salloc)
+          esl_sq_Grow(psq[frame], /*opt_nsafe=*/NULL);
+        psq[frame]->dsq[1 + psq[frame]->n] = aa;
+        psq[frame]->n++;
       }
 
       /* Advance +1 */
       if (wrk->is_revcomp) wrk->apos--; else wrk->apos++;
-      wrk->frame = (wrk->frame + 1) % 3;
+      if (++frame == 3) frame = 0;
     }
+  wrk->frame = frame;
   return eslOK;
 }
 
