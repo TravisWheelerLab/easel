@@ -868,16 +868,18 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       /* Translate the current codon starting at <pos>;
        * see if it's an acceptable initiator
        */
-      if (wrk->inval > 0) // degenerate codon: needs special, tedious handling
+      if (wrk->inval > 0) // degenerate codon: always translates to X
       {
-        aa =  esl_gencode_GetTranslation(gcode, sq->dsq+rpos);                         // This function can deal with any degeneracy
-
-        if (! wrk->in_orf[frame] && esl_gencode_IsInitiator(gcode, sq->dsq+rpos)) //   ...as can IsInitiator.
+        aa = gcode->aa_abc->Kp - 3;  // X: codon contains non-canonical base, result is always unknown
+        if (! wrk->in_orf[frame]
+            && ! esl_abc_XIsUnknown(gcode->nt_abc, sq->dsq[rpos])
+            && ! esl_abc_XIsUnknown(gcode->nt_abc, sq->dsq[rpos+1])
+            && ! esl_abc_XIsUnknown(gcode->nt_abc, sq->dsq[rpos+2])
+            && esl_gencode_IsInitiator(gcode, sq->dsq+rpos))
           {
-            if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
-              aa = esl_abc_DigitizeSymbol(gcode->aa_abc, 'M');
-            wrk->in_orf[frame]  = TRUE;
-            psq[frame]->start   = wrk->apos;
+            if (wrk->using_initiators) aa = esl_abc_DigitizeSymbol(gcode->aa_abc, 'M');
+            psq[frame]->start  = wrk->apos;
+            wrk->in_orf[frame] = TRUE;
           }
         wrk->inval--;
       }
