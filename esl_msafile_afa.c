@@ -247,7 +247,7 @@ esl_msafile_afa_Read(ESL_MSAFILE *afp, ESL_MSA **ret_msa)
   return eslOK;
 
  ERROR:
-  if (msa) esl_msa_Destroy(msa);
+  if (msa) { msa->nseq = idx + 1; esl_msa_Destroy(msa); }
   *ret_msa = NULL;
   return status;
 
