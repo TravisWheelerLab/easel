@@ -94,7 +94,7 @@ AC_DEFUN([ESL_AVX_TYPES],[
   esl_have_avx_types=no
 
   AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
-#include <x86intrin.h>
+#include <immintrin.h>
 int main(void) { __m256i v; return 0; }
   ]])],
   [ esl_have_avx_types=yes ],
