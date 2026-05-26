@@ -77,3 +77,35 @@ int main(void) {
 
   AS_VAR_IF([esl_have_avx],[yes],[$1],[$2])
 ])
+
+
+# ESL_AVX_TYPES([ACTION-IF-FOUND], [ACTION-IF-NOT-FOUND])
+#
+# Checks whether __m256i and other AVX types are visible to the compiler
+# using only the current CFLAGS (no extra AVX-specific flags). Some
+# compilers (GCC <= 8) require -mavx2 to see these types; GCC >= 9 and
+# Clang expose them by default.
+#
+# This check is important because src/*.c files are compiled without
+# AVX_CFLAGS, so they cannot use the AVX implementation if the types are
+# only available with extra flags.
+#
+# Sets $esl_have_avx_types = yes | no
+#
+AC_DEFUN([ESL_AVX_TYPES],[
+  AC_MSG_CHECKING([whether $CC has AVX types without extra flags])
+  esl_have_avx_types=no
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+#include <x86intrin.h>
+#include <stdint.h>
+int main(void) {
+  __m256i v = _mm256_set1_epi32(42);
+  (void)v;
+  return 0;
+}
+  ]])],
+  [esl_have_avx_types=yes
+   AC_MSG_RESULT([yes])],
+  [AC_MSG_RESULT([no])])
+  AS_VAR_IF([esl_have_avx_types],[yes],[$1],[$2])
+])
