@@ -31,14 +31,16 @@ typedef struct {
  */
 typedef struct esl_gencode_workstate_s {
   /* stateful info (which may get updated with each new seq, strand, and/or window): */
-  ESL_SQ *psq[3];     // Growing ORFs in each frame
-  int8_t  in_orf[3];  // TRUE|FALSE: TRUE if we're growing an ORF in this frame
-  int     apos;       // 1..L:  current nucleotide we're on (starting a codon) in <sq>
-  int     frame;      // 0..2:  which frame <apos> is in
-  int     codon;      // 0..63: Digitized codon for apos,apos+1,apos+2
-  int     inval;      // 0..3:  how many apos increments we need to get past an ambiguous nucleotide
-  int     is_revcomp; // TRUE|FALSE: TRUE if we're doing reverse complement strand
-  int     orfcount;   // >=0:   How many ORFs we've processed so far
+  ESL_SQ *psq[3];        // Growing ORFs in each frame
+  int8_t  in_orf[3];     // TRUE|FALSE: TRUE if we're growing an ORF in this frame
+  int     degen_cnt[3];	 // per frame count of consecutive degenerate amnios
+  int     last_basic[3]; // per frame location of the last canonical amino
+  int     apos;          // 1..L:  current nucleotide we're on (starting a codon) in <sq>
+  int     frame;         // 0..2:  which frame <apos> is in
+  int     codon;         // 0..63: Digitized codon for apos,apos+1,apos+2
+  int     inval;         // 0..3:  how many apos increments we need to get past an ambiguous nucleotide
+  int     is_revcomp;   // TRUE|FALSE: TRUE if we're doing reverse complement strand
+  int     orfcount;     // >=0:   How many ORFs we've processed so far
 
   ESL_SQ_BLOCK  *orf_block; // sequences block to hold ORFs
 

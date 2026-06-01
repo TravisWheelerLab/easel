@@ -748,6 +748,8 @@ esl_gencode_WorkstateCreate(ESL_GETOPTS *go, ESL_GENCODE *gcode)
       wrk->psq[f]         = esl_sq_CreateDigital(gcode->aa_abc);
       wrk->psq[f]->dsq[0] = eslDSQ_SENTINEL;
       wrk->in_orf[f]      = FALSE;
+	  wrk->degen_cnt[f]   = 0;
+	  wrk->last_basic[f]  = 0;
     }
 
   wrk->apos             = 1;
@@ -852,17 +854,11 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
   int      rpos;
   ESL_SQ  *psq[3];
   int      frame;
-  int      degen_cnt[3];
-  int      last_basic[3];
 
   psq[0] = wrk->psq[0];
   psq[1] = wrk->psq[1];
   psq[2] = wrk->psq[2];
   frame  = wrk->frame;
-
-  degen_cnt[0] = 0;
-  degen_cnt[1] = 0;
-  degen_cnt[2] = 0;
 
   for (rpos = 1; rpos <= sq->n-2; rpos++)
     {
@@ -877,7 +873,7 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       if (wrk->inval > 0) // degenerate codon: always translates to X
       {
         aa = gcode->aa_abc->Kp - 3;  // X: codon contains non-canonical base, result is always unknown
-        degen_cnt[frame]++;
+        wrk->degen_cnt[frame]++;
         if (! wrk->in_orf[frame]
             && ! esl_abc_XIsUnknown(gcode->nt_abc, sq->dsq[rpos])
             && ! esl_abc_XIsUnknown(gcode->nt_abc, sq->dsq[rpos+1])
@@ -893,8 +889,8 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
       else
       {
         aa = gcode->basic[wrk->codon];                             // If we know the digitized codon has no degeneracy, translation is a simple lookup
-        degen_cnt[frame] = 0;
-        last_basic[frame] = 1 + psq[frame]->n;
+        wrk->degen_cnt[frame]  = 0;
+        wrk->last_basic[frame] = 1 + psq[frame]->n;
         if (gcode->is_initiator[wrk->codon] && ! wrk->in_orf[frame])
           {
             if (wrk->using_initiators)  // If we're using initiation codons, initial codon translates to M even if it's something like UUG or CUG
@@ -906,7 +902,11 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
 
       /* Stop codon: deal with this ORF sequence and reinitiate */
       if ( esl_abc_XIsNonresidue(gcode->aa_abc, aa))
-        { wrk->frame = frame; esl_gencode_ProcessOrf(wrk, sq); frame = wrk->frame; }
+      { 
+		wrk->degen_cnt[frame]  = 0;
+		wrk->last_basic[frame] = 0;
+		wrk->frame = frame; 
+		esl_gencode_ProcessOrf(wrk, sq); frame = wrk->frame; }
 
       /* Otherwise: we have a residue. If we're in an orf (if we've
        * seen a suitable initiator), add this residue, reallocating as needed.
@@ -916,8 +916,10 @@ esl_gencode_ProcessPiece(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
         if (psq[frame]->n + 2 > psq[frame]->salloc)
           esl_sq_Grow(psq[frame], /*opt_nsafe=*/NULL);
         psq[frame]->dsq[1 + psq[frame]->n] = aa;
-        if(degen_cnt[frame] > 20) {
-          psq[frame]->n = last_basic[frame];
+        if(wrk->degen_cnt[frame] > 30) {
+          psq[frame]->n = wrk->last_basic[frame];
+		  wrk->degen_cnt[frame]  = 0;
+		  wrk->last_basic[frame] = 0;
           wrk->frame = frame;
           esl_gencode_ProcessOrf(wrk, sq);
           frame = wrk->frame;          
