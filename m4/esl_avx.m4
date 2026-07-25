@@ -81,13 +81,15 @@ int main(void) {
 # ESL_AVX_TYPES([ACTION-IF-FOUND], [ACTION-IF-NOT-FOUND])
 #
 # Checks whether __m256i and other AVX types are visible to the compiler
-# using only the current CFLAGS (no extra AVX-specific flags). Some
-# compilers (GCC <= 8) require -mavx2 to see these types; GCC >= 9 and
-# Clang expose them by default.
-#
-# This check is important because src/*.c files are compiled without
-# AVX_CFLAGS, so they cannot use the AVX implementation if the types are
-# only available with extra flags.
+# using only the current CFLAGS (no extra AVX-specific flags), sufficient
+# for declaring pointer fields of these types (as our structs do outside
+# impl_avx/). This does NOT require calling AVX intrinsic functions --
+# those are only ever called inside impl_avx/*.c, which is compiled with
+# AVX_CFLAGS separately. Some compilers (observed: GCC 13) require
+# -mavx2 to call the intrinsic functions even when the bare types are
+# already visible without it, so a check that calls a function (e.g.
+# _mm256_set1_epi32()) can fail here even though nothing outside
+# impl_avx/ actually needs to call one.
 #
 # Sets $esl_have_avx_types = yes | no
 #
@@ -97,9 +99,11 @@ AC_DEFUN([ESL_AVX_TYPES],[
   AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
 #include <x86intrin.h>
 #include <stdint.h>
+struct esl_avx_type_probe { __m256i *p; __m256 *q; };
 int main(void) {
-  __m256i v = _mm256_set1_epi32(42);
-  (void)v;
+  struct esl_avx_type_probe s;
+  s.p = 0;
+  s.q = 0;
   return 0;
 }
   ]])],
