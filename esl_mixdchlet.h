@@ -23,6 +23,13 @@ typedef struct {
 
   double  *postq;                /* temp space 0..Q-1: for posterior P(k|c) for example */
   /*::cexcerpt::dirichlet_mixdchlet::end::*/
+
+  /* Constants derived from <alpha>, cached by mixdchlet_cache(). Anything
+   * that writes <alpha> must set cache_valid = FALSE.
+   */
+  double  *totalpha;             /* totalpha[k] = \sum_a alpha[k][a]                               */
+  double  *lgconst;              /* lgconst[k]  = lgamma(totalpha[k]) - \sum_a lgamma(alpha[k][a]) */
+  int      cache_valid;
 } ESL_MIXDCHLET;
 
 

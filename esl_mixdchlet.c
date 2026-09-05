@@ -54,12 +54,17 @@ esl_mixdchlet_Create(int Q, int K)
   ESL_DASSERT1( (K > 0) );
 
   ESL_ALLOC(dchl, sizeof(ESL_MIXDCHLET));
-  dchl->q      = NULL; 
-  dchl->alpha  = NULL;
-  dchl->postq  = NULL;
+  dchl->q        = NULL; 
+  dchl->alpha    = NULL;
+  dchl->postq    = NULL;
+  dchl->totalpha = NULL;
+  dchl->lgconst  = NULL;
 
-  ESL_ALLOC(dchl->q,      sizeof(double)   * Q);
-  ESL_ALLOC(dchl->postq,  sizeof(double)   * Q);
+  ESL_ALLOC(dchl->q,        sizeof(double)   * Q);
+  ESL_ALLOC(dchl->postq,    sizeof(double)   * Q);
+  ESL_ALLOC(dchl->totalpha, sizeof(double)   * Q);
+  ESL_ALLOC(dchl->lgconst,  sizeof(double)   * Q);
+  dchl->cache_valid = FALSE;
   if ((dchl->alpha = esl_mat_DCreate(Q,K)) == NULL) goto ERROR;
 
   dchl->Q = Q;
@@ -84,6 +89,8 @@ esl_mixdchlet_Destroy(ESL_MIXDCHLET *dchl)
       free(dchl->q);
       esl_mat_DDestroy(dchl->alpha);
       free(dchl->postq);
+      free(dchl->totalpha);
+      free(dchl->lgconst);
       free(dchl);
     }
 }
@@ -95,16 +102,51 @@ esl_mixdchlet_Destroy(ESL_MIXDCHLET *dchl)
  *****************************************************************/
 
 
+/* mixdchlet_cache()
+ * Precompute the alpha-only terms that esl_dirichlet_logpdf_c() would
+ * otherwise recompute for every count vector.
+ */
+static void
+mixdchlet_cache(ESL_MIXDCHLET *dchl)
+{
+  double lg;
+  int    k, a;
+
+  for (k = 0; k < dchl->Q; k++)
+    {
+      dchl->totalpha[k] = esl_vec_DSum(dchl->alpha[k], dchl->K);
+      esl_stats_LogGamma(dchl->totalpha[k], &lg);
+      dchl->lgconst[k] = lg;
+      for (a = 0; a < dchl->K; a++)
+        { esl_stats_LogGamma(dchl->alpha[k][a], &lg); dchl->lgconst[k] -= lg; }
+    }
+  dchl->cache_valid = TRUE;
+}
+
 /* mixchlet_postq()
  * Calculate P(q | c), the posterior probability of component q.
  */
 static void
 mixdchlet_postq(ESL_MIXDCHLET *dchl, double *c)
 {
-  int k;
+  double totc = esl_vec_DSum(c, dchl->K);
+  double sumlg, lg;
+  int    k, a;
+
+  if (! dchl->cache_valid) mixdchlet_cache(dchl);
+
+  /* logpdf_c()'s count-only terms are the same for every component, so they
+   * cancel in the LogNorm below; skip them. Alpha-only terms are cached.
+   */
   for (k = 0; k < dchl->Q; k++)
-    if (dchl->q[k] > 0.) dchl->postq[k] = log(dchl->q[k]) + esl_dirichlet_logpdf_c(c, dchl->alpha[k], dchl->K);
-    else                 dchl->postq[k] = -eslINFINITY;
+    {
+      if (dchl->q[k] <= 0.) { dchl->postq[k] = -eslINFINITY; continue; }
+      sumlg = 0.;
+      for (a = 0; a < dchl->K; a++)
+        { esl_stats_LogGamma(dchl->alpha[k][a] + c[a], &lg); sumlg += lg; }
+      esl_stats_LogGamma(dchl->totalpha[k] + totc, &lg);
+      dchl->postq[k] = log(dchl->q[k]) + dchl->lgconst[k] + sumlg - lg;
+    }
   esl_vec_DLogNorm(dchl->postq, dchl->Q); 
 }
 
@@ -164,7 +206,7 @@ esl_mixdchlet_MPParameters(ESL_MIXDCHLET *dchl, double *c, double *p)
   esl_vec_DSet(p, dchl->K, 0.);
   for (k = 0; k < dchl->Q; k++)
     {
-      totalpha = esl_vec_DSum(dchl->alpha[k], dchl->K);
+      totalpha = dchl->totalpha[k];
       for (a = 0; a < dchl->K; a++)
 	p[a] += dchl->postq[k] * (c[a] + dchl->alpha[k][a]) / (totc + totalpha);
     }
@@ -249,6 +291,7 @@ mixdchlet_unpack_paramvector(double *p, ESL_MIXDCHLET *dchl)
   for (k = 0; k < dchl->Q; k++)
     for (a = 0; a < dchl->K; a++) 
       dchl->alpha[k][a] = exp(p[j++]);
+  dchl->cache_valid = FALSE;
 
   ESL_DASSERT1(( j == dchl->Q *  (dchl->K + 1)) );
 }
@@ -423,6 +466,7 @@ esl_mixdchlet_Sample(ESL_RANDOMNESS *rng, ESL_MIXDCHLET *dchl)
   for (k = 0; k < dchl->Q; k++)
     for (a = 0; a < dchl->K; a++)
       dchl->alpha[k][a] = 2.0 * esl_rnd_UniformPositive(rng);
+  dchl->cache_valid = FALSE;
   return eslOK;
 }
   
@@ -494,6 +538,7 @@ esl_mixdchlet_Read(ESL_FILEPARSER *efp,  ESL_MIXDCHLET **ret_dchl)
 	}
     }
   esl_vec_DNorm(dchl->q, Q);
+  dchl->cache_valid = FALSE;
   *ret_dchl = dchl;
   return eslOK;
 
