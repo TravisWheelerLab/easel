@@ -89,6 +89,7 @@ static int  ignore_sequence_of_integer(ESL_SQNCBI_DATA *ncbi);
 #define INIT_HDR_BUFFER_SIZE  2048
 
 #define NCBI_VERSION_4             4
+#define NCBI_VERSION_5             5
 #define NCBI_DNA_DB                0
 #define NCBI_AMINO_DB              1
 
@@ -104,7 +105,7 @@ static int  ignore_sequence_of_integer(ESL_SQNCBI_DATA *ncbi);
  *            The opened <ESL_SQFILE> is returned through <ret_sqfp>.
  * 
  *            The .pin, .phr and .psq files are required for the
- *            open function to succeed.  Only ncbi version 4
+ *            open function to succeed.  Only ncbi version 4 and 5
  *            databases are currently supported.
  *            
  * Returns:   <eslOK> on success, and <*ret_sqfp> points to a new
@@ -211,8 +212,9 @@ sqncbi_ParseIndexFile(ESL_SQNCBI_DATA *ncbi, int dbtype)
   uint32_t    info[4];
   int         status = eslOK;	/* return status from an ESL call */
 
-  if (fread(&info[0], sizeof(uint32_t), 3, ncbi->fppin) != 3) status = eslFAIL;
-  if (htobe32(info[0]) != NCBI_VERSION_4)                     status = eslEFORMAT;
+  if (fread(&info[0], sizeof(uint32_t), 2, ncbi->fppin) != 2) status = eslFAIL;
+  if (htobe32(info[0]) != NCBI_VERSION_4 &&
+      htobe32(info[0]) != NCBI_VERSION_5)                     status = eslEFORMAT;
   if (htobe32(info[1]) != dbtype)                             status = eslEUNIMPLEMENTED;
 
   if (status != eslOK) goto ERROR;
@@ -220,11 +222,22 @@ sqncbi_ParseIndexFile(ESL_SQNCBI_DATA *ncbi, int dbtype)
   ncbi->alphatype = (dbtype == NCBI_DNA_DB) ? eslDNA : eslAMINO;
   ncbi->index = 0;
 
+  /* version 5 adds a volume number before the title */
+  if (ncbi->version == NCBI_VERSION_5 &&
+      fread(&info[0], sizeof(uint32_t), 1, ncbi->fppin) != 1) { status = eslFAIL; goto ERROR; }
+
   /* read the database title */
-  len = htobe32(info[2]);
+  if (fread(&info[0], sizeof(uint32_t), 1, ncbi->fppin) != 1) { status = eslFAIL; goto ERROR; }
+  len = htobe32(info[0]);
   ESL_ALLOC(ncbi->title, sizeof(char) * (len + 1));
   if (fread(ncbi->title, sizeof(char), len, ncbi->fppin) != len) { status = eslFAIL; goto ERROR; }
   ncbi->title[len] = 0;
+
+  /* version 5 adds the name of its LMDB (accession/taxonomy) file after the title; skip it */
+  if (ncbi->version == NCBI_VERSION_5) {
+    if (fread(&info[0], sizeof(uint32_t), 1, ncbi->fppin) != 1) { status = eslFAIL; goto ERROR; }
+    if (fseek(ncbi->fppin, htobe32(info[0]), SEEK_CUR) != 0)    { status = eslFAIL; goto ERROR; }
+  }
 
   /* read the database time stamp */
   if (fread(&info[0], sizeof(uint32_t), 1, ncbi->fppin) != 1) { status = eslFAIL; goto ERROR; }
@@ -242,6 +255,8 @@ sqncbi_ParseIndexFile(ESL_SQNCBI_DATA *ncbi, int dbtype)
   /* save the offsets to the index tables */
   ncbi->hdr_off = ftell(ncbi->fppin);
   ncbi->seq_off = ncbi->hdr_off + sizeof(uint32_t) * (ncbi->num_seq + 1);
+  if (dbtype == NCBI_DNA_DB)
+    ncbi->amb_off = ncbi->seq_off + sizeof(uint32_t) * (ncbi->num_seq + 1);
 
   return eslOK;
 
@@ -287,7 +302,7 @@ sqncbi_DbOpen(ESL_SQNCBI_DATA *ncbi, char *filename, int dbtype)
     goto ERROR;
   }
 
-  /* parse the header make sure we are looking at a version 4 db. */
+  /* parse the header make sure we are looking at a version 4 or 5 db. */
   if ((status = sqncbi_ParseIndexFile(ncbi, dbtype)) != eslOK) goto ERROR;
 
   if (name != NULL) free(name);
@@ -528,7 +543,6 @@ sqncbi_Open(ESL_SQNCBI_DATA *ncbi, char *filename)
    * ambiguity offsets.
    */
   if (ncbi->alphatype == eslDNA) {
-    ncbi->amb_off = ncbi->seq_off + sizeof(uint32_t) * (ncbi->num_seq + 1);
     ESL_ALLOC(ncbi->amb_indexes, sizeof(uint32_t) * INDEX_TABLE_SIZE);
   }
 
@@ -1180,13 +1194,12 @@ sqncbi_ReadBlock(ESL_SQFILE *sqfp, ESL_SQ_BLOCK *sqBlock, int max_residues, int 
 	  ESL_SQ *tmpsq  = NULL;
 
 	  sqBlock->count = 0;
+	  if (max_sequences < 1 || max_sequences > sqBlock->listSize)
+	    max_sequences = sqBlock->listSize;
 
 	  if ( !long_target  )
 	  {  /* in these cases, an individual sequence won't ever be really long,
 			     so just read in a sequence at a time  */
-
-	    if (max_sequences < 1 || max_sequences > sqBlock->listSize)
-	      max_sequences = sqBlock->listSize;
 
 		  for (i = 0; i < max_sequences && size < MAX_RESIDUE_COUNT; ++i)
 		  {
@@ -1214,15 +1227,18 @@ sqncbi_ReadBlock(ESL_SQFILE *sqfp, ESL_SQ_BLOCK *sqBlock, int max_residues, int 
 			  if (status == eslOK)
 			  {
 				  sqBlock->count = i = 1;
-				  size = sqBlock->list->n;
-				  sqBlock->list[i].L = sqfp->data.ncbi.seq_L;
-				  if (sqBlock->list->n >= max_residues)
+				  size = sqBlock->list->n - sqBlock->list->C; /* new residues only, as in sqascii_ReadBlock() */
+				  sqBlock->list->L = sqfp->data.ncbi.seq_L;
+				  if (size >= max_residues)
 				  { // Filled the block with a single very long window.
 
-				    if ( sqBlock->list->n == sqfp->data.ncbi.seq_L) {
+				    if ( sqBlock->list->end == sqfp->data.ncbi.seq_L) {
 				      sqBlock->complete = TRUE;
 				      esl_sq_Reuse(tmpsq);
 				      tmpsq->start =  sqBlock->list->start ;
+				      tmpsq->end   =  sqBlock->list->end ;
+				      tmpsq->n     =  sqBlock->list->n ;
+				      tmpsq->idx   =  sqBlock->list->idx ;
 				      tmpsq->C = 0;
 				      status = sqncbi_ReadWindow(sqfp, 0, max_residues, tmpsq); // burn off the EOD
               if (status == eslEOD) // otherwise, the unexpected status will be returned
@@ -1241,6 +1257,9 @@ sqncbi_ReadBlock(ESL_SQFILE *sqfp, ESL_SQ_BLOCK *sqBlock, int max_residues, int 
 					  // Burn off EOD (see notes for similar entry ~25 lines below), then go fetch the next sequence
 					  esl_sq_Reuse(tmpsq);
 					  tmpsq->start =  sqBlock->list->start ;
+					  tmpsq->end   =  sqBlock->list->end ;
+					  tmpsq->n     =  sqBlock->list->n ;
+					  tmpsq->idx   =  sqBlock->list->idx ;
 					  tmpsq->C = 0;
 					  status = sqncbi_ReadWindow(sqfp, 0, max_residues, tmpsq);
 					  if (status != eslEOD) {
@@ -1262,7 +1281,7 @@ sqncbi_ReadBlock(ESL_SQFILE *sqfp, ESL_SQ_BLOCK *sqBlock, int max_residues, int 
 		  } // otherwise, just start at the beginning
 
 
-		  for (  ; i < sqBlock->listSize && size < max_residues; ++i)
+		  for (  ; i < max_sequences && size < max_residues; ++i)
 		  {
 	      /* restricted request_size is used to ensure that all blocks are pretty close to the
 	       * same size. Without it, we may either naively keep asking for max_residue windows,
@@ -1286,7 +1305,10 @@ sqncbi_ReadBlock(ESL_SQFILE *sqfp, ESL_SQ_BLOCK *sqBlock, int max_residues, int 
           if ( sqBlock->list[i].n == sqfp->data.ncbi.seq_L) {
              sqBlock->complete = TRUE;
              esl_sq_Reuse(tmpsq);
-             tmpsq->start =  sqBlock->list->start ;
+             tmpsq->start =  sqBlock->list[i].start ;
+             tmpsq->end   =  sqBlock->list[i].end ;
+             tmpsq->n     =  sqBlock->list[i].n ;
+             tmpsq->idx   =  sqBlock->list[i].idx ;
              tmpsq->C = 0;
              status = sqncbi_ReadWindow(sqfp, 0, max_residues, tmpsq); // burn off the EOD
              if (status == eslEOD) // otherwise, the unexpected status will be returned
@@ -1454,7 +1476,8 @@ volume_open(ESL_SQNCBI_DATA *ncbi, int volume)
 
   /* quickly parse the header make sure we are sane. */
   if (fread(&info[0], sizeof(uint32_t), 3, ncbi->fppin) != 3) status = eslFAIL;
-  if (htobe32(info[0]) != NCBI_VERSION_4)                     status = eslEFORMAT;
+  if (htobe32(info[0]) != NCBI_VERSION_4 &&
+      htobe32(info[0]) != NCBI_VERSION_5)                     status = eslEFORMAT;
   if (htobe32(info[1]) != dbtype)                             status = eslEFORMAT;
 
   if (status != eslOK) goto ERROR;
