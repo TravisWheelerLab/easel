@@ -682,13 +682,14 @@ int
 esl_sq_BlockGrowTo(ESL_SQ_BLOCK *sqblock, int newsize, int do_digital, const ESL_ALPHABET *abc)
 {
   int   status = eslOK;
+  int   oldsize = sqblock->listSize;
   int   i;
   if(sqblock->listSize < newsize)
   {
      ESL_REALLOC(sqblock->list, sizeof(ESL_SQ) * newsize);
      sqblock->listSize = newsize;
 
-     for (i = sqblock->count; i < sqblock->listSize; ++i)
+     for (i = oldsize; i < sqblock->listSize; ++i) /* only the new slots; the rest are already initialized */
      {
        sqblock->list[i].abc = abc;
        if ((status = sq_init(sqblock->list + i, do_digital)) != eslOK)
