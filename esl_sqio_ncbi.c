@@ -1962,7 +1962,7 @@ correct_ambiguity(ESL_SQFILE *sqfp, ESL_SQ *sq, int len)
     if (off + cnt >= soff && off < eoff) {
       int inx;
       int start = (off > soff) ? off - soff : 0;
-      int end   = (off + cnt > eoff) ? eoff : off - soff + cnt;
+      int end   = (off + cnt > eoff) ? eoff - soff : off - soff + cnt;
       for (inx = start; inx < end; ++inx) ptr[inx] = c;
     }
 
