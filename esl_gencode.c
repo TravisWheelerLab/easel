@@ -834,7 +834,9 @@ esl_gencode_ProcessStart(ESL_GENCODE *gcode, ESL_GENCODE_WORKSTATE *wrk, ESL_SQ 
   for (f = 0; f < 3; f++)
     {
       esl_sq_SetSource(wrk->psq[f], sq->name);
-      wrk->in_orf[f] = FALSE;
+      wrk->in_orf[f]     = FALSE;
+      wrk->degen_cnt[f]  = 0;
+      wrk->last_basic[f] = 0;
     }
   wrk->frame      = 0;
   wrk->codon      = 0;
