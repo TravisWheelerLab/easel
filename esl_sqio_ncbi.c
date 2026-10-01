@@ -1524,7 +1524,7 @@ pos_sequence(ESL_SQNCBI_DATA *ncbi, int inx)
       if (inx < volume->start_seq || inx > volume->end_seq) {
 	volume = ncbi->vols;
 	for (cnt = 0; cnt < ncbi->volumes; ++cnt) {
-	  if (inx < volume->end_seq) break;
+	  if (inx <= volume->end_seq) break;
 	  ++volume;
 	}
 
@@ -1594,7 +1594,7 @@ pos_sequence(ESL_SQNCBI_DATA *ncbi, int inx)
 
   if (ncbi->alphatype == eslDNA) {
     ncbi->seq_apos = htobe32(ncbi->amb_indexes[inx]);
-    ncbi->seq_alen = ncbi->seq_apos + htobe32(ncbi->amb_indexes[inx+1]) + 1;
+    ncbi->seq_alen = htobe32(ncbi->amb_indexes[inx+1]) - ncbi->seq_apos;
   } else {
     ncbi->seq_apos = 0;
     ncbi->seq_alen = 0;
