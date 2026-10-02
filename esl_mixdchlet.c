@@ -59,13 +59,17 @@ esl_mixdchlet_Create(int Q, int K)
   dchl->postq    = NULL;
   dchl->totalpha = NULL;
   dchl->lgconst  = NULL;
+  dchl->lgalpha  = NULL;
+  dchl->logq     = NULL;
 
   ESL_ALLOC(dchl->q,        sizeof(double)   * Q);
   ESL_ALLOC(dchl->postq,    sizeof(double)   * Q);
   ESL_ALLOC(dchl->totalpha, sizeof(double)   * Q);
   ESL_ALLOC(dchl->lgconst,  sizeof(double)   * Q);
+  ESL_ALLOC(dchl->logq,     sizeof(double)   * Q);
   dchl->cache_valid = FALSE;
-  if ((dchl->alpha = esl_mat_DCreate(Q,K)) == NULL) goto ERROR;
+  if ((dchl->alpha   = esl_mat_DCreate(Q,K)) == NULL) goto ERROR;
+  if ((dchl->lgalpha = esl_mat_DCreate(Q,K)) == NULL) goto ERROR;
 
   dchl->Q = Q;
   dchl->K = K;
@@ -91,6 +95,8 @@ esl_mixdchlet_Destroy(ESL_MIXDCHLET *dchl)
       free(dchl->postq);
       free(dchl->totalpha);
       free(dchl->lgconst);
+      esl_mat_DDestroy(dchl->lgalpha);
+      free(dchl->logq);
       free(dchl);
     }
 }
@@ -103,7 +109,7 @@ esl_mixdchlet_Destroy(ESL_MIXDCHLET *dchl)
 
 
 /* mixdchlet_cache()
- * Precompute the alpha-only terms that esl_dirichlet_logpdf_c() would
+ * Precompute the q- and alpha-only terms that esl_dirichlet_logpdf_c() would
  * otherwise recompute for every count vector.
  */
 static void
@@ -118,7 +124,8 @@ mixdchlet_cache(ESL_MIXDCHLET *dchl)
       esl_stats_LogGamma(dchl->totalpha[k], &lg);
       dchl->lgconst[k] = lg;
       for (a = 0; a < dchl->K; a++)
-        { esl_stats_LogGamma(dchl->alpha[k][a], &lg); dchl->lgconst[k] -= lg; }
+        { esl_stats_LogGamma(dchl->alpha[k][a], &lg); dchl->lgalpha[k][a] = lg; dchl->lgconst[k] -= lg; }
+      dchl->logq[k] = log(dchl->q[k]);
     }
   dchl->cache_valid = TRUE;
 }
@@ -136,16 +143,20 @@ mixdchlet_postq(ESL_MIXDCHLET *dchl, double *c)
   if (! dchl->cache_valid) mixdchlet_cache(dchl);
 
   /* logpdf_c()'s count-only terms are the same for every component, so they
-   * cancel in the LogNorm below; skip them. Alpha-only terms are cached.
+   * cancel in the LogNorm below; skip them. Alpha-only terms are cached; a
+   * zero count reuses lgamma(alpha).
    */
   for (k = 0; k < dchl->Q; k++)
     {
       if (dchl->q[k] <= 0.) { dchl->postq[k] = -eslINFINITY; continue; }
       sumlg = 0.;
       for (a = 0; a < dchl->K; a++)
-        { esl_stats_LogGamma(dchl->alpha[k][a] + c[a], &lg); sumlg += lg; }
+        {
+          if (c[a] == 0.) sumlg += dchl->lgalpha[k][a];
+          else          { esl_stats_LogGamma(dchl->alpha[k][a] + c[a], &lg); sumlg += lg; }
+        }
       esl_stats_LogGamma(dchl->totalpha[k] + totc, &lg);
-      dchl->postq[k] = log(dchl->q[k]) + dchl->lgconst[k] + sumlg - lg;
+      dchl->postq[k] = dchl->logq[k] + dchl->lgconst[k] + sumlg - lg;
     }
   esl_vec_DLogNorm(dchl->postq, dchl->Q); 
 }
