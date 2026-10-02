@@ -788,11 +788,33 @@ esl_rsq_xIID(ESL_RANDOMNESS *r, const double *p, int K, int L, ESL_DSQ *dsq)
 int
 esl_rsq_xfIID(ESL_RANDOMNESS *r, const float *p, int K, int L, ESL_DSQ *dsq)
 {
-  int   x;
+  double cdf[64];
+  double norm, sum, roll;
+  int    x, i;
 
   dsq[0] = dsq[L+1] = eslDSQ_SENTINEL;
-  for (x = 1; x <= L; x++) 
-    dsq[x] = p ? esl_rnd_FChoose(r,p,K) : esl_rnd_Roll(r,K);
+  if (! p || K > 64)
+    {
+      for (x = 1; x <= L; x++)
+        dsq[x] = p ? esl_rnd_FChoose(r,p,K) : esl_rnd_Roll(r,K);
+      return eslOK;
+    }
+
+  /* Same arithmetic as esl_rnd_FChoose(), so the draws are identical. */
+  norm = 0.0;
+  for (i = 0; i < K; i++) norm += p[i];
+  ESL_DASSERT1((norm > 0.99 && norm < 1.01));
+  sum = 0.0;
+  for (i = 0; i < K; i++) { sum += (double) p[i]; cdf[i] = sum / norm; }
+
+  for (x = 1; x <= L; x++)
+    {
+      roll = esl_random(r);
+      for (i = 0; i < K; i++)
+        if (roll < cdf[i]) break;
+      if (i == K) esl_fatal("unreached code was reached. universe collapses.");
+      dsq[x] = i;
+    }
   return eslOK;
 }
 
