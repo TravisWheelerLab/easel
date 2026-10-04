@@ -726,7 +726,7 @@ esl_gencode_WorkstateDestroy(ESL_GENCODE_WORKSTATE *wrk)
 
       if(wrk->orf_block != NULL)
       {
-         esl_sq_DestroyBlock(wrk->orf_block);
+         esl_gencode_OrfBlockDestroy(wrk->orf_block);
          wrk->orf_block = NULL;
       }
 
@@ -779,6 +779,129 @@ esl_gencode_WorkstateCreate(ESL_GETOPTS *go, ESL_GENCODE *gcode)
  *  6. Functions for processing ORFs
  *****************************************************************/
 
+/* Residue storage of an ORF block comes in chunks of at least this many bytes.
+ * Kept small: when a block is created and freed for every query, 1 MB chunks
+ * raised peak memory about 30%, and 512 kB chunks sometimes did; 64 kB to
+ * 256 kB did not. */
+#define eslORF_CHUNK (1 << 16)
+
+/* Function:  esl_gencode_OrfBlockCreate()
+ * Synopsis:  Create an empty block of ORFs.
+ *
+ * Purpose:   Create a block with room for <count> ORFs; it grows as needed.
+ *
+ * Returns:   the new block; <NULL> on allocation failure.
+ */
+ESL_ORF_BLOCK *
+esl_gencode_OrfBlockCreate(int count)
+{
+  ESL_ORF_BLOCK *block = NULL;
+  int            status;
+
+  if (count < 1) count = 1;
+  ESL_ALLOC(block, sizeof(ESL_ORF_BLOCK));
+  block->list       = NULL;
+  block->chunk      = NULL;
+  block->chunkalloc = NULL;
+  block->count      = 0;
+  block->listSize   = count;
+  block->nchunks    = 0;
+  block->cur        = 0;
+  block->used       = 0;
+
+  ESL_ALLOC(block->list,       sizeof(ESL_ORF)   * count);
+  ESL_ALLOC(block->chunk,      sizeof(ESL_DSQ *));
+  ESL_ALLOC(block->chunkalloc, sizeof(int64_t));
+  block->chunk[0] = NULL;
+  ESL_ALLOC(block->chunk[0],   sizeof(ESL_DSQ) * eslORF_CHUNK);
+  block->chunkalloc[0] = eslORF_CHUNK;
+  block->nchunks       = 1;
+  return block;
+
+ ERROR:
+  esl_gencode_OrfBlockDestroy(block);
+  return NULL;
+}
+
+/* Function:  esl_gencode_OrfBlockReuse()
+ * Synopsis:  Empty a block of ORFs, keeping its memory.
+ */
+void
+esl_gencode_OrfBlockReuse(ESL_ORF_BLOCK *block)
+{
+  block->count = 0;
+  block->cur   = 0;
+  block->used  = 0;
+}
+
+/* Function:  esl_gencode_OrfBlockDestroy()
+ * Synopsis:  Free a block of ORFs.
+ */
+void
+esl_gencode_OrfBlockDestroy(ESL_ORF_BLOCK *block)
+{
+  int c;
+
+  if (block == NULL) return;
+  if (block->chunk != NULL)
+    for (c = 0; c < block->nchunks; c++) free(block->chunk[c]);
+  free(block->chunk);
+  free(block->chunkalloc);
+  free(block->list);
+  free(block);
+}
+
+/* orf_block_add()
+ * Add the finished ORF <psq> to <block>.
+ */
+static int
+orf_block_add(ESL_ORF_BLOCK *block, const ESL_SQ *psq)
+{
+  ESL_ORF *orf;
+  int64_t  nbytes = psq->n + 2;   /* residues and the two sentinels */
+  int      status;
+
+  if (block->count == block->listSize)
+    {
+      ESL_REALLOC(block->list, sizeof(ESL_ORF) * block->listSize * 2);
+      block->listSize *= 2;
+    }
+
+  if (block->used + nbytes > block->chunkalloc[block->cur])
+    { /* move to the next chunk. Chunks after <cur> hold no ORFs, so one of them can be created or resized */
+      int next = (block->used > 0 ? block->cur + 1 : block->cur);
+      if (next == block->nchunks)
+        {
+          ESL_REALLOC(block->chunk,      sizeof(ESL_DSQ *) * (block->nchunks + 1));
+          ESL_REALLOC(block->chunkalloc, sizeof(int64_t)   * (block->nchunks + 1));
+          block->chunk[next]      = NULL;
+          block->chunkalloc[next] = 0;
+          block->nchunks++;
+        }
+      if (block->chunkalloc[next] < nbytes)
+        {
+          int64_t newalloc = ESL_MAX(nbytes, eslORF_CHUNK);
+          ESL_REALLOC(block->chunk[next], sizeof(ESL_DSQ) * newalloc);
+          block->chunkalloc[next] = newalloc;
+        }
+      block->cur  = next;
+      block->used = 0;
+    }
+
+  orf        = block->list + block->count;
+  orf->dsq   = block->chunk[block->cur] + block->used;
+  memcpy(orf->dsq, psq->dsq, sizeof(ESL_DSQ) * nbytes);
+  orf->n     = psq->n;
+  orf->start = psq->start;
+  orf->end   = psq->end;
+  block->used += nbytes;
+  block->count++;
+  return eslOK;
+
+ ERROR:
+  return status;
+}
+
 int
 esl_gencode_ProcessOrf(ESL_GENCODE_WORKSTATE *wrk, ESL_SQ *sq)
 {
@@ -806,15 +929,7 @@ esl_gencode_ProcessOrf(ESL_GENCODE_WORKSTATE *wrk, ESL_SQ *sq)
       }
       else
       {
-        if (wrk->orf_block->count == wrk->orf_block->listSize)
-        {
-          status = esl_sq_BlockGrowTo(wrk->orf_block, wrk->orf_block->listSize + 128, TRUE, psq->abc);
-          if (status != eslOK) ESL_XEXCEPTION(eslEMEM, "Cannot increase size of ORF sequence block");
-        }
-
-        esl_sq_Copy(psq, &(wrk->orf_block->list[wrk->orf_block->count]));
-
-        wrk->orf_block->count++;
+        if ((status = orf_block_add(wrk->orf_block, psq)) != eslOK) ESL_XEXCEPTION(eslEMEM, "Cannot add to the ORF block");
       }
     }
 
