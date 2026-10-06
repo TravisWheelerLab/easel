@@ -63,6 +63,8 @@ static int  loadmem  (ESL_SQFILE *sqfp);
 static int  loadbuf  (ESL_SQFILE *sqfp);
 static int  nextchar (ESL_SQFILE *sqfp, char *ret_c);
 static int  seebuf   (ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos);
+static int  seebuf_dsq(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos,
+                       ESL_DSQ *dst, const ESL_DSQ *abc_inmap, int64_t *opt_rend, int *opt_dst_ok);
 static void addbuf   (ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nres);
 static void skipbuf  (ESL_SQFILE *sqfp, int64_t nskip);
 static int  read_nres(ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nskip, int64_t nres, int64_t *opt_actual_nres);
@@ -2201,6 +2203,92 @@ nextchar(ESL_SQFILE *sqfp, char *ret_c)
   return eslOK;
 }
 
+#define MIN_RUN 16   /* shortest line worth the per-line fast path in seebuf() and addbuf() */
+
+/* line_run()
+ * Number of bytes from <bpos> up to the next newline or the end of the
+ * buffer <nc>, whichever comes first, not counting a CR before the newline.
+ */
+static int64_t
+line_run(const char *buf, int64_t bpos, int64_t nc)
+{
+  const char *nl  = memchr(buf + bpos, '\n', nc - bpos);
+  int64_t     run = nl ? nl - (buf + bpos) : nc - bpos;
+  if (run > 0 && buf[bpos + run - 1] == '\r') run--;   /* leave a CR-LF line's CR to the byte-by-byte code */
+  return run;
+}
+
+/* short_line()
+ * TRUE if the <run> bytes at <bpos> are a whole line (a newline on both
+ * sides, inside this buffer) shorter than MIN_RUN. Pieces of lines cut by
+ * the buffer edges don't count.
+ */
+static int
+short_line(const char *buf, int64_t bpos, int64_t run, int64_t nc)
+{
+  return (run > 0 && run < MIN_RUN && bpos > 0 && buf[bpos - 1] == '\n' && bpos + run < nc);
+}
+
+/* plain_residues()
+ * TRUE if all <n> bytes at <p> are ASCII and map to residues in <inmap>.
+ */
+static int
+plain_residues(const char *p, int64_t n, const ESL_DSQ *inmap)
+{
+  const unsigned char *u = (const unsigned char *) p;
+  unsigned char        b0 = 0, b1 = 0, b2 = 0, b3 = 0;   /* four, so bytes don't wait on each other */
+  int64_t              k;
+  for (k = 0; k + 4 <= n; k += 4) {
+    b0 |= u[k]   | inmap[u[k]   & 0x7f];
+    b1 |= u[k+1] | inmap[u[k+1] & 0x7f];
+    b2 |= u[k+2] | inmap[u[k+2] & 0x7f];
+    b3 |= u[k+3] | inmap[u[k+3] & 0x7f];
+  }
+  for ( ; k < n; k++) b0 |= u[k] | inmap[u[k] & 0x7f];
+  return !((b0 | b1 | b2 | b3) & 0x80);
+}
+
+/* convert_residues()
+ * Digitize <n> bytes at <p> into <dsq> through <inmap>. Returns TRUE if they
+ * were all residues; if not, <dsq> holds junk the caller overwrites.
+ */
+static int
+convert_residues(const char *p, int64_t n, const ESL_DSQ *inmap, ESL_DSQ *dsq)
+{
+  const unsigned char *u = (const unsigned char *) p;
+  unsigned char        b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+  int64_t              k;
+  for (k = 0; k + 4 <= n; k += 4) {
+    dsq[k]   = inmap[u[k]   & 0x7f]; b0 |= dsq[k]   | u[k];
+    dsq[k+1] = inmap[u[k+1] & 0x7f]; b1 |= dsq[k+1] | u[k+1];
+    dsq[k+2] = inmap[u[k+2] & 0x7f]; b2 |= dsq[k+2] | u[k+2];
+    dsq[k+3] = inmap[u[k+3] & 0x7f]; b3 |= dsq[k+3] | u[k+3];
+  }
+  for ( ; k < n; k++) { dsq[k] = inmap[u[k] & 0x7f]; b0 |= dsq[k] | u[k]; }
+  return !((b0 | b1 | b2 | b3) & 0x80);
+}
+
+/* convert_plain()
+ * Digitize <n> bytes at <p> into <dsq> through a 256-entry table <t> that
+ * has the bit 0x80 set for anything other than a plain residue. TRUE if
+ * they were all plain residues; if not, <dsq> holds junk the caller
+ * overwrites.
+ */
+static int
+convert_plain(const char *p, int64_t n, const ESL_DSQ *t, ESL_DSQ *dsq)
+{
+  const unsigned char *u = (const unsigned char *) p;
+  unsigned char        b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+  int64_t              k;
+  for (k = 0; k + 4 <= n; k += 4) {
+    ESL_DSQ d0 = t[u[k]], d1 = t[u[k+1]], d2 = t[u[k+2]], d3 = t[u[k+3]];
+    dsq[k] = d0; dsq[k+1] = d1; dsq[k+2] = d2; dsq[k+3] = d3;
+    b0 |= d0; b1 |= d1; b2 |= d2; b3 |= d3;
+  }
+  for ( ; k < n; k++) { dsq[k] = t[u[k]]; b0 |= dsq[k]; }
+  return !((b0 | b1 | b2 | b3) & 0x80);
+}
+
 /* seebuf()
  * 
  * Examine and validate the current buffer <sqfp->buf> from its
@@ -2246,15 +2334,29 @@ nextchar(ESL_SQFILE *sqfp, char *ret_c)
  * to make sure that <seebuf()> never counts the same byte twice (hence
  * the need for the <maxn> limit, which ReadWindow() uses.)
  */
+/* seebuf_dsq() is seebuf() that can also digitize the residues it counts,
+ * so a caller doesn't need a second pass with addbuf(). With <dst>
+ * non-NULL, residue <k> it counts is written to <dst[k]> through
+ * <abc_inmap>, as addbuf() would; <*opt_rend> gets the buffer position just
+ * past the last counted residue, where addbuf() would leave <bpos>.
+ * <*opt_dst_ok> is FALSE if a counted residue isn't a residue to
+ * <abc_inmap> (such as '*'); <dst> is then unreliable, and the caller uses
+ * addbuf() as before.
+ */
 static int
-seebuf(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos)
+seebuf_dsq(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos,
+           ESL_DSQ *dst, const ESL_DSQ *abc_inmap, int64_t *opt_rend, int *opt_dst_ok)
 {
   int     bpos;
+  int64_t rend   = sqfp->data.ascii.bpos;
+  int     dst_ok = TRUE;
+  ESL_DSQ plain[256];   /* with <dst>: residue code, or 0x80 set if not a residue to both maps */
   int64_t nres  = 0;
   int64_t nres2 = 0;/* an optimization for determining lastrpl from nres, without incrementing lastrpl on every char */
   int     sym;
   ESL_DSQ x;
   int     lasteol;
+  int     short_lines = FALSE;
   int     status  = eslOK;
 
   ESL_SQASCII_DATA *ascii = &sqfp->data.ascii;
@@ -2262,14 +2364,46 @@ seebuf(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos)
   lasteol = ascii->bpos - 1;
   if (maxn == -1) maxn = ascii->nc; /* makes for a more efficient test. nc is a guaranteed upper bound on nres */
 
-  for (bpos = ascii->bpos; nres < maxn && bpos < ascii->nc; bpos++)
+  if (dst != NULL)
+    for (bpos = 0; bpos < 256; bpos++)
+      plain[bpos] = (bpos < 128 && sqfp->inmap[bpos] <= 127 && abc_inmap[bpos] <= 127) ? abc_inmap[bpos] : 0xff;
+
+  bpos = ascii->bpos;
+  while (nres < maxn && bpos < ascii->nc)
   {
+      /* A line of plain residues is counted in one go. Anything else in it
+       * (EOL, ignored, illegal, end-of-record, non-ASCII) goes byte by byte,
+       * and so does everything after a short line, where the per-line
+       * overhead would cost more than it saves. */
+      int64_t run, end;
+      if (short_lines) end = ascii->nc;
+      else {
+        run = line_run(ascii->buf, bpos, ascii->nc);
+        if (short_line(ascii->buf, bpos, run, ascii->nc)) short_lines = TRUE;
+        if (run > maxn - nres) run = maxn - nres;
+        if (run >= MIN_RUN && (dst != NULL ? convert_plain(ascii->buf + bpos, run, plain, dst + nres)
+                                           : plain_residues(ascii->buf + bpos, run, sqfp->inmap))) {
+          nres += run; bpos += run; rend = bpos;
+          continue;
+        }
+        end = (run > 0) ? bpos + run : bpos + 1;
+      }
+
+      for ( ; nres < maxn && bpos < end; bpos++)
+      {
       sym = ascii->buf[bpos];
       //printf ("nres: %d, bpos: %d  (%d)\n", nres, bpos, sym);
       if (!isascii(sym)) ESL_FAIL(eslEFORMAT, ascii->errbuf, "Line %" PRId64 ": non-ASCII character %c in sequence", ascii->linenumber, sym); 
       x   = sqfp->inmap[sym];
 
-      if      (x <= 127) nres++;
+      if      (x <= 127) {
+        if (dst != NULL) {
+          ESL_DSQ y = abc_inmap[sym];
+          if (y > 127) dst_ok = FALSE; else dst[nres] = y;
+        }
+        nres++;
+        rend = bpos + 1;
+      }
       else if (x == eslDSQ_EOL) 
       {
          if (ascii->curbpl != -1) ascii->curbpl += bpos - lasteol;
@@ -2297,13 +2431,23 @@ seebuf(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos)
     else if (x == eslDSQ_ILLEGAL) ESL_FAIL(eslEFORMAT, ascii->errbuf, "Line %" PRId64 ": illegal character %c", ascii->linenumber, sym);
     else if (x == eslDSQ_EOD)     { status = eslEOD; break; }
     else if (x != eslDSQ_IGNORED) ESL_FAIL(eslEFORMAT, ascii->errbuf, "inmap corruption?");
+      }
+      if (status == eslEOD) break;
   }
 
   if (ascii->curbpl != -1) ascii->curbpl += bpos - lasteol - 1;
   if (ascii->currpl != -1) ascii->currpl += nres - nres2;
   if (opt_nres   != NULL) *opt_nres   = nres;
   if (opt_endpos != NULL) *opt_endpos = bpos;
+  if (opt_rend   != NULL) *opt_rend   = rend;
+  if (opt_dst_ok != NULL) *opt_dst_ok = dst_ok;
   return status;
+}
+
+static int
+seebuf(ESL_SQFILE *sqfp, int64_t maxn, int64_t *opt_nres, int64_t *opt_endpos)
+{
+  return seebuf_dsq(sqfp, maxn, opt_nres, opt_endpos, NULL, NULL, NULL, NULL);
 }
 
 /* addbuf() 
@@ -2340,9 +2484,26 @@ addbuf(ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nres)
 
   if (sq->dsq != NULL) 
     {
+      int short_lines = FALSE;
       while (nres) {
-        x  = sq->abc->inmap[(int) ascii->buf[ascii->bpos++]];
-        if (x <= 127) { nres--; sq->dsq[++sq->n] = x; }
+        /* A line of plain residues is converted in one go; anything else byte by
+         * byte, and so is everything after a short line (see seebuf()) */
+        int64_t run, end;
+        if (short_lines) end = ascii->nc;
+        else {
+          run = line_run(ascii->buf, ascii->bpos, ascii->nc);
+          if (short_line(ascii->buf, ascii->bpos, run, ascii->nc)) short_lines = TRUE;
+          if (run > nres) run = nres;
+          if (run >= MIN_RUN && convert_residues(ascii->buf + ascii->bpos, run, sq->abc->inmap, sq->dsq + sq->n + 1)) {
+            sq->n += run; ascii->bpos += run; nres -= run;
+            continue;
+          }
+          end = (run > 0) ? ascii->bpos + run : ascii->bpos + 1;
+        }
+        while (nres && ascii->bpos < end) {
+          x  = sq->abc->inmap[(int) ascii->buf[ascii->bpos++]];
+          if (x <= 127) { nres--; sq->dsq[++sq->n] = x; }
+        }
       } /* we skipped IGNORED, EOL. EOD, ILLEGAL don't occur; seebuf() already checked  */
     } 
   else
@@ -2461,10 +2622,14 @@ read_nres(ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nskip, int64_t nres, int64_t *op
   int64_t n;
   int64_t epos;
   int64_t actual_nres = 0;
+  int64_t rend;
+  int     dst_ok      = FALSE;
   int     status      = eslOK;
+  int     one_pass    = (nskip == 0 && sq->dsq != NULL);   /* digitize while counting; see seebuf_dsq() */
   
   ESL_SQASCII_DATA *ascii = &sqfp->data.ascii;
-  status = seebuf(sqfp, nskip+nres, &n, &epos);
+  if (one_pass) status = seebuf_dsq(sqfp, nres, &n, &epos, sq->dsq + sq->n + 1, sq->abc->inmap, &rend, &dst_ok);
+  else          status = seebuf(sqfp, nskip+nres, &n, &epos);
   while (status == eslOK && nskip - n > 0) {
     nskip   -= n;
     if ((status = loadbuf(sqfp)) == eslEOF) break;
@@ -2485,11 +2650,13 @@ read_nres(ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nskip, int64_t nres, int64_t *op
 
   while (status == eslOK && nres - n > 0) 
     {
-      addbuf(sqfp, sq, n);
+      if (one_pass && dst_ok) { sq->n += n; ascii->bpos = rend; }
+      else                    addbuf(sqfp, sq, n);
       actual_nres += n;
       nres        -= n;
       if ((status = loadbuf(sqfp)) == eslEOF) break;
-      status = seebuf(sqfp, nres, &n, &epos);
+      if (one_pass) status = seebuf_dsq(sqfp, nres, &n, &epos, sq->dsq + sq->n + 1, sq->abc->inmap, &rend, &dst_ok);
+      else          status = seebuf(sqfp, nres, &n, &epos);
     }
 
 
@@ -2501,7 +2668,8 @@ read_nres(ESL_SQFILE *sqfp, ESL_SQ *sq, int64_t nskip, int64_t nres, int64_t *op
   }
 
   n = ESL_MIN(nres, n); 
-  addbuf(sqfp, sq, n);   /* bpos now at last residue + 1 if OK/EOD, 0 if EOF  */
+  if (one_pass && dst_ok && n > 0) { sq->n += n; ascii->bpos = rend; }
+  else                             addbuf(sqfp, sq, n);   /* bpos now at last residue + 1 if OK/EOD, 0 if EOF  */
   actual_nres += n;
 
   if (sq->dsq != NULL) sq->dsq[sq->n+1] = eslDSQ_SENTINEL;
