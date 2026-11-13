@@ -22,6 +22,35 @@ typedef struct {
   const ESL_ALPHABET *aa_abc;  // A reference to amino alphabet that caller is maintaining 
 } ESL_GENCODE;
 
+/* A translated ORF in an <ESL_ORF_BLOCK>: its residues, and where it lies on
+ * the nucleotide sequence it came from.
+ */
+typedef struct {
+  ESL_DSQ *dsq;     // residues 1..n, with sentinel bytes at 0 and n+1; points into the block's residue storage
+  int64_t  n;       // length in residues
+  int64_t  start;   // nucleotide coord of the ORF's first base
+  int64_t  end;     // nucleotide coord of its last base; < start on the reverse strand
+} ESL_ORF;
+
+/* The ORFs translated from one or more nucleotide sequences. Their residues
+ * are kept end to end in a few large chunks, so an ORF costs its residues
+ * and one <ESL_ORF>.
+ */
+typedef struct {
+  ESL_ORF  *list;        // ORFs 0..count-1
+  int       count;       // number of ORFs
+  int       listSize;    // number of ORFs <list> is allocated for
+  ESL_DSQ **chunk;       // residue storage, chunks 0..nchunks-1; a chunk doesn't move while it holds ORFs
+  int64_t  *chunkalloc;  // allocated size of each chunk, in bytes
+  int       nchunks;     // number of chunks
+  int       cur;         // chunk being filled
+  int64_t   used;        // bytes used in chunk <cur>
+} ESL_ORF_BLOCK;
+
+extern ESL_ORF_BLOCK *esl_gencode_OrfBlockCreate (int count);
+extern void           esl_gencode_OrfBlockReuse  (ESL_ORF_BLOCK *block);
+extern void           esl_gencode_OrfBlockDestroy(ESL_ORF_BLOCK *block);
+
 /* struct esl_gencode_workstate_s
  *   keeps state in DNA sequence <sq>, allowing us to process a sequence
  *   either in a single gulp (using ReadSeq) or in overlapping windows
@@ -42,7 +71,7 @@ typedef struct esl_gencode_workstate_s {
   int     is_revcomp;   // TRUE|FALSE: TRUE if we're doing reverse complement strand
   int     orfcount;     // >=0:   How many ORFs we've processed so far
 
-  ESL_SQ_BLOCK  *orf_block; // sequences block to hold ORFs
+  ESL_ORF_BLOCK *orf_block; // block to hold ORFs
 
   /* one-time configuration information (from options) */
   int     do_watson;         // TRUE|FALSE:  TRUE if we translate the top strand
